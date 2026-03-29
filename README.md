@@ -25,11 +25,14 @@ FastAPI backend for [PromptZip](https://github.com/SlothWriteCode/PromptZip) —
 ```json
 {
   "prompt": "Your text here...",
-  "ratio": 0.5
+  "ratio": 0.75,
+  "preserve_structure": true
 }
 ```
 
-`ratio` = target compression (0.5 = keep 50% of tokens, 0.3 = very aggressive).
+`ratio` = target compression strength. Higher values keep more of the original prompt.
+
+`preserve_structure` = keeps lists, code fences, and instruction-heavy formatting safer during compression.
 
 ## Response Format
 

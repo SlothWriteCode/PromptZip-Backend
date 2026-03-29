@@ -85,8 +85,9 @@ app.add_middleware(
 # ── Schemas ───────────────────────────────────────────────────────────────────
 class CompressRequest(BaseModel):
     prompt: str
-    ratio: float = 0.5          # 0.5 = compress to 50% of original tokens
+    ratio: float = 0.75         # 0.75 = keep about 75% of original tokens
     target_token: int = -1      # optional hard token limit (-1 = use ratio)
+    preserve_structure: bool = True
 
 
 class CompressResponse(BaseModel):
@@ -120,6 +121,28 @@ def make_response(original: str, compressed: str, model_used: str) -> CompressRe
     )
 
 
+def get_effective_ratio(req: CompressRequest) -> float:
+    """Clamp compression strength to safer defaults for prompt quality."""
+    ratio = min(max(req.ratio, 0.5), 0.95)
+    prompt = req.prompt or ""
+
+    has_structure = any(token in prompt for token in ["\n-", "\n*", "```", "{", "}", "JSON", "json", "must", "must not"])
+    if req.preserve_structure or has_structure:
+        ratio = max(ratio, 0.7)
+
+    if len(prompt) < 200:
+        ratio = max(ratio, 0.8)
+
+    return ratio
+
+
+def get_force_tokens(req: CompressRequest) -> list[str]:
+    tokens = ["\n", ".", "!", "?", ",", ":", ";"]
+    if req.preserve_structure:
+        tokens.extend(["-", "*", "`", "{", "}", "[", "]"])
+    return tokens
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
@@ -135,10 +158,11 @@ async def compress_fast(req: CompressRequest):
     if "fast" not in _models:
         raise HTTPException(503, "LLMLingua-2 model not loaded")
     try:
+        ratio = get_effective_ratio(req)
         result = _models["fast"].compress_prompt(
             req.prompt,
-            rate=req.ratio,
-            force_tokens=["\n", ".", "!", "?", ","],
+            rate=ratio,
+            force_tokens=get_force_tokens(req),
         )
         compressed = result.get("compressed_prompt", req.prompt)
         return make_response(req.prompt, compressed, "LLMLingua-2")
@@ -152,10 +176,11 @@ async def compress_standard(req: CompressRequest):
     if "standard" not in _models:
         raise HTTPException(503, "LLMLingua standard model not loaded")
     try:
+        ratio = get_effective_ratio(req)
         result = _models["standard"].compress_prompt(
             req.prompt,
-            rate=req.ratio,
-            force_tokens=["\n", ".", "!", "?", ","],
+            rate=ratio,
+            force_tokens=get_force_tokens(req),
         )
         compressed = result.get("compressed_prompt", req.prompt)
         return make_response(req.prompt, compressed, "LLMLingua")
@@ -169,10 +194,11 @@ async def compress_long(req: CompressRequest):
     if "long" not in _models:
         raise HTTPException(503, "LongLLMLingua model not loaded")
     try:
+        ratio = get_effective_ratio(req)
         result = _models["long"].compress_prompt(
             req.prompt,
-            rate=req.ratio,
-            force_tokens=["\n", ".", "!", "?", ","],
+            rate=ratio,
+            force_tokens=get_force_tokens(req),
         )
         compressed = result.get("compressed_prompt", req.prompt)
         return make_response(req.prompt, compressed, "LongLLMLingua")
